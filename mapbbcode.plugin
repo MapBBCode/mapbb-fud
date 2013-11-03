@@ -1,0 +1,342 @@
+<?php
+/**
+* copyright  : (C) 2013 Ilya Zverev
+* email      : zverik@textual.ru
+* version    : 1.0
+* requires   : FUDforum 3.0.3+
+*
+* This plugin is licensed WTFPL: http://www.wtfpl.net
+*
+* For FUDforum 3.0.2:
+* - open FUDforumData/includes/compiler.inc
+* - find second FINALIZE
+* - replace "array($file_data));" with "array($file_data, $dst));"
+*
+* After installing open Theme Manager and press "Rebuild".
+**/
+
+// Initialize plugin
+plugin_add_hook('BBCODE2HTML', 'plugin_mapbbcode_bb2html');
+plugin_add_hook('HTML2BBCODE', 'plugin_mapbbcode_html2bb');
+plugin_add_hook('COMPILER_FINALIZE_PAGE', 'plugin_mapbbcode_add_scripts');
+
+function plugin_mapbbcode_replacement($m) {
+	$id = mt_rand();
+    if( $m[1] == 'map' ) {
+		return '<div id="mapbb'.$id.'" map="'.$m[2].'">'.htmlspecialchars($m[3]).'</div><script>if(mapBBcode) mapBBcode.show("mapbb'.$id.'");</script>';
+	} elseif( $m[1] == 'mapid' ) {
+		return '<div id="mapext'.$id.'"></div><script>if(mapBBcode) mapBBcode.showExternal("mapext'.$id.'", "'.$m[2].'");</script>';
+	}
+	return $m[0];
+}
+
+function plugin_mapbbcode_bb2html($array) {
+	list($msg) = $array;
+	$i = mt_rand();
+	$msg = preg_replace_callback('#\[(map)(=[0-9,.-]+)?\](.*?)\[/map\]#si', 'plugin_mapbbcode_replacement', $msg);
+	$msg = preg_replace_callback('#\[(mapid)\]([a-z]+)\[/mapid\]#i', 'plugin_mapbbcode_replacement', $msg);
+	return array($msg);
+}
+
+function plugin_mapbbcode_html2bb($array) {
+	list($msg) = $array;
+	$msg = preg_replace('#<div id="mapbb\d+" map="([^"]*)">(.*?)</div><script>[^<]+</script>#s', '[map\\1]\\2[/map]', $msg);
+	$msg = preg_replace('#<div id="mapext\d+"></div><script>[^<]+"([a-z]+)"\);</script>#s', '[mapid]\\1[/mapid]', $msg);
+	return array($msg);
+}
+
+function plugin_mapbbcode_add_scripts($array) {
+	list($html, $page) = $array;
+	$ini = plugin_mapbbcode_read_ini();
+	$disext = $ini['mapbb_enable_external'] ? '' : 'mapBBcode.showExternal = function(a,b) {};';
+	$ffs = $ini['mapbb_always_full'] ? 'true' : 'false';
+	$upload = $ini['mapbb_enable_external'] ? 'true' : 'false';
+	$ssw = $ini['mapbb_standard_switcher'] ? 'true' : 'false';
+	$scripts = <<<SCRIPTS
+<link rel="stylesheet" href="js/mapbbcode/leaflet.css" />
+<link rel="stylesheet" href="js/mapbbcode/leaflet.draw.css" />
+<!--[if lte IE 8]>
+	<link rel="stylesheet" href="js/mapbbcode/leaflet.ie.css" />
+	<link rel="stylesheet" href="js/mapbbcode/leaflet.draw.ie.css" />
+<![endif]-->
+<script src="js/mapbbcode/leaflet.js"></script>
+<script src="js/mapbbcode/leaflet.draw.js"></script>
+<script src="js/mapbbcode/Bing.js"></script>
+<script src="js/mapbbcode/mapbbcode.js"></script>
+<script src="js/mapbbcode/mapbbcode-config.js"></script>
+<script language="Javascript" type="text/javascript">
+<!--
+var mapBBcode = new MapBBCode({
+	windowPath: 'js/mapbbcode/',
+	layers: '{$ini['mapbb_layers']}',
+	defaultZoom: {$ini['mapbb_default_zoom']},
+	defaultPosition: [{$ini['mapbb_default_pos']}],
+	viewWidth: {$ini['mapbb_view_width']},
+	viewHeight: {$ini['mapbb_view_height']},
+	fullViewHeight: {$ini['mapbb_full_height']},
+	editorHeight: {$ini['mapbb_editor_height']},
+	windowWidth: {$ini['mapbb_window_width']},
+	windowHeight: {$ini['mapbb_window_height']},
+	fullFromStart: $ffs,
+	preferStandardLayerSwitcher: $ssw,
+	outerLinkTemplate: '{$ini['mapbb_outer_link']}',
+	uploadButton: $upload,
+	externalEndpoint: '{$ini['mapbb_share_server']}'
+});
+$disext
+//-->
+</script>
+SCRIPTS;
+	
+	$bbcodestr = '<script>if(mapBBcode)'; // this substring in messages flags the need for mapbbcode scripts
+	if( $page == 'msg.php' || $page == 'selmsg.php' || $page == 'modque.php' || $page == 'reported.php' ) {
+		// we have $message_data array, so it's easy to check if there is map bbcode
+		$find = '</head>';
+		$var = $page == 'modque.php' ? 'modque_message' : ($page == 'reported.php' ? 'reported_message' : 'message_data');
+		$add = '<?php if( isset($message_data) && strpos($'.$var.', \''.$bbcodestr.'\') !== false ) { ?>'.$scripts.'<?php } ?>';
+		$html = str_replace($find, $add.$find, $html);
+	} elseif( $page == 'tree.php' ) {
+		// in tree, messages are rendered on the fly, so print scripts unconditionally
+		$find = '</head>';
+		$html = str_replace($find, $scripts.$find, $html);
+	} elseif( $page == 'pmsg_view.php' ) {
+		// we have to read private message body to determine whether to add scripts
+		$find = '</head>';
+		$add = '<?php if( $m->length > 0 ) { $msgbody = read_pmsg_body($m->foff, $m->length); if( $msgbody && strpos($msgbody, \''.$bbcodestr.'\') !== false ) { ?>'.$scripts.'<?php }} ?>';
+		$html = str_replace($find, $add.$find, $html);
+	} elseif( $page == 'post.php' || $page == 'ppost.php' ) {
+		// there are two </head>s in post.php, so we attach to other string
+		$find = '<?php echo $RSS; ?>';
+		$html = str_replace($find, $find.$scripts, $html);
+		if( !$ini['mapbb_editor_window'] ) {
+			$find = 'echo get_err(\'msg_body\', 1); ?>';
+			$add = '<div id="mapedit"></div>';
+			$html = str_replace($find, $find.$add, $html);
+		}
+		$find = 'src="theme/default/images/b_image.gif" /></a></td>';
+		$method = $ini['mapbb_editor_window'] ? 'editorWindow(' : 'editor(\\\'mapedit\\\', ';
+		$add = '<td class="FormattingToolsCLR"><a title="Insert or edit a map" href="#" onclick="javascript:mapBBcode.'.$method.'document.post_form.msg_body);return false;"><img alt="" src="js/mapbbcode/images/b_map.gif" /></a></td>';
+		$html = str_replace($find, $find.$add, $html);
+		// 3.0.5
+		$find = 'src="theme/default/images/b_image.gif" /></a></span>';
+		$add = '<span class="FormattingToolsCLR"><a title="Insert or edit a map" href="#" onclick="javascript:mapBBcode.'.$method.'document.post_form.msg_body);return false;"><img alt="" src="js/mapbbcode/images/b_map.gif" /></a></span>';
+		$html = str_replace($find, $find.$add, $html);
+	}
+	return array($html, $page);
+}
+
+function mapbbcode_enable() {
+	@fud_use('fs.inc', true);
+	if( !function_exists('fud_mkdir') )
+		fud_use('file_adm.inc', true);
+	$fromdir = $GLOBALS['PLUGIN_PATH'].'mapbbcode/js';
+	$todir = $GLOBALS['WWW_ROOT_DISK'].'js/mapbbcode';
+	fud_mkdir($todir);
+	//fud_mkdir($todir.'/images');
+	fud_copy_copy($fromdir, $todir);
+	@define('REBUILD_THEMES', 1);
+}
+
+function mapbbcode_disable() {
+	@fud_use('fs.inc', true);
+	if( !function_exists('fud_rmdir') )
+		fud_use('file_adm.inc', true);
+	fud_rmdir($GLOBALS['WWW_ROOT_DISK'].'js/mapbbcode', true);
+	@define('REBUILD_THEMES', 1);
+}
+
+function mapbbcode_info() {
+	return array('name' => 'MapBBCode', 'version' => '1.0',
+		'cat' => 'Third-party Integration',
+		'desc' => 'Maps inside forum posts in [map] tags. More info at <a href="http://mapbbcode.org">MapBBCode website</a>.');
+}
+
+function plugin_mapbbcode_read_ini() {
+	@include $GLOBALS['PLUGIN_PATH'] .'mapbbcode/mapbbcode.ini';
+	if( !isset($ini) || !isset($ini['mapbb_view_width']) ) {
+		// default settings
+		$ini = array(
+			'mapbb_layers' => 'OpenStreetMap',
+			'mapbb_default_zoom' => 2,
+			'mapbb_default_pos' => '22,11',
+			'mapbb_view_width' => 600,
+			'mapbb_view_height' => 300,
+			'mapbb_full_height' => 600,
+			'mapbb_editor_height' => 400,
+			'mapbb_window_width' => 800,
+			'mapbb_window_height' => 500,
+			'mapbb_always_full' => false,
+			'mapbb_editor_window' => true,
+			'mapbb_standard_switcher' => true,
+			'mapbb_enable_external' => false,
+			'mapbb_outer_link' => '',
+			'mapbb_share_server' => 'http://share.mapbbcode.org/',
+			'mapbb_allowed_tags' => '[auib]|span|br|em|strong|tt'
+		);
+	}
+	return $ini;
+}
+
+function mapbbcode_config() {
+	$ini = plugin_mapbbcode_read_ini();
+
+	if( isset($_POST['Set']) ) {
+		foreach (array_keys($_POST) as $key ) {
+			if( substr($key,0,6) == 'mapbb_' ) {
+				$ini[$key] = trim($_POST[$key]);
+			}
+		}
+		foreach( array('always_full', 'editor_window', 'standard_switcher', 'enable_external') as $key ) {
+			$ini['mapbb_'.$key] = isset($_POST['mapbb_'.$key]) && $_POST['mapbb_'.$key] == true;
+		}
+		$fp = fopen($GLOBALS['PLUGIN_PATH'] .'mapbbcode/mapbbcode.ini', 'w');
+		fwrite($fp, '<?php $ini = '. var_export($ini, 1) .'; ?>');
+		fclose($fp);
+		echo '<p style="color: green; margin-bottom: 1em;">Settings successfully saved.<br />Now please <b><a href="admthemes.php?rebuild_all=1&amp;'.__adm_rsid.'">rebuild all themes</a></b> for changes to take effect.</p>';
+	}
+	?>
+<input type="hidden" name="mapbb_default_zoom" value="<?php echo $ini['mapbb_default_zoom'] ?>" />
+<input type="hidden" name="mapbb_default_pos" value="<?php echo $ini['mapbb_default_pos'] ?>" />
+<input type="hidden" name="mapbb_view_width" value="<?php echo $ini['mapbb_view_width'] ?>" />
+<input type="hidden" name="mapbb_view_height" value="<?php echo $ini['mapbb_view_height'] ?>" />
+<input type="hidden" name="mapbb_full_height" value="<?php echo $ini['mapbb_full_height'] ?>" />
+<input type="hidden" name="mapbb_editor_height" value="<?php echo $ini['mapbb_editor_height'] ?>" />
+<input type="hidden" name="mapbb_window_width" value="<?php echo $ini['mapbb_window_width'] ?>" />
+<input type="hidden" name="mapbb_window_height" value="<?php echo $ini['mapbb_window_height'] ?>" />
+<input type="hidden" name="mapbb_always_full" value="<?php echo $ini['mapbb_always_full'] ?>" />
+<input type="hidden" name="mapbb_editor_window" value="<?php echo $ini['mapbb_editor_window'] ?>" />
+<input type="hidden" name="mapbb_layers" value="<?php echo $ini['mapbb_layers'] ?>" id="mapbbfield" />
+
+	<?php if( file_exists($GLOBALS['WWW_ROOT_DISK'].'/js/mapbbcode/mapbbcode-config.js') ) { ?>
+<link rel="stylesheet" href="../js/mapbbcode/leaflet.css" />
+<!--[if lte IE 8]>
+	<link rel="stylesheet" href="../js/mapbbcode/leaflet.ie.css" />
+<![endif]-->
+<script src="../js/mapbbcode/leaflet.js"></script>
+<script src="../js/mapbbcode/Bing.js"></script>
+<script src="../js/mapbbcode/mapbbcode-config.js"></script>
+
+<div id="panel_config"></div>
+<p>Map layers: <select id="layer_select" size="1"></select> <input type="button" id="addbutton" /></p>
+<p style="display: none;" id="bing_key_row"><span id="bing_key_title"></span> <input type="text" id="bing_key" /></p>
+<hr />
+<p>Default zoom level and coordinates: <span id="default_zoom_pos"></span><br />
+View panel size: <span id="panel_size"></span><br />
+Expanded panel height: <span id="full_height"></span><br />
+Editor window size: <span id="window_size"></span><br />
+Inline editor panel height: <span id="editor_height"></span></p>
+
+<script language="javascript" type="text/javascript">
+<!--
+function isTrue(val) {
+	return val && val !== '0' && val !== 'false';
+}
+
+function updateTableValues() {
+	var f = document.getElementById('mapbbfield').form,
+		full = isTrue(f.elements['mapbb_always_full'].value),
+		win = isTrue(f.elements['mapbb_editor_window'].value);
+	document.getElementById('default_zoom_pos').innerHTML = f.elements['mapbb_default_zoom'].value + ',' + f.elements['mapbb_default_pos'].value;
+	document.getElementById('panel_size').innerHTML = (full ? '<span style="color: #aaa;">' : '') + f.elements['mapbb_view_width'].value + 'x' + f.elements['mapbb_view_height'].value + (full ? '</span>' : '');
+	document.getElementById('full_height').innerHTML = f.elements['mapbb_full_height'].value;
+	document.getElementById('window_size').innerHTML = (win ? '' : '<span style="color: #aaa;">') + f.elements['mapbb_window_width'].value + 'x' + f.elements['mapbb_window_height'].value + (win ? '' : '</span>');
+	document.getElementById('editor_height').innerHTML = (win ? '<span style="color: #aaa;">' : '') + f.elements['mapbb_editor_height'].value + (win ? '</span>' : '');
+}
+
+var config = new MapBBCodeConfig({
+	layers: '<?php echo $ini['mapbb_layers'] ?>'.split(','),
+	defaultZoom: <?php echo $ini['mapbb_default_zoom'] ?>,
+	defaultPosition: [<?php echo $ini['mapbb_default_pos'] ?>],
+	viewWidth: <?php echo $ini['mapbb_view_width'] ?>,
+	viewHeight: <?php echo $ini['mapbb_view_height'] ?>,
+	fullViewHeight: <?php echo $ini['mapbb_full_height'] ?>,
+	editorHeight: <?php echo $ini['mapbb_editor_height'] ?>,
+	windowWidth: <?php echo $ini['mapbb_window_width'] ?>,
+	windowHeight: <?php echo $ini['mapbb_window_height'] ?>,
+	fullFromStart: <?php echo $ini['mapbb_always_full'] ? 'true' : 'false' ?>,
+//		editorTypeFixed: true, // uncomment if needed
+	editorInWindow: <?php echo $ini['mapbb_editor_window'] ? 'true' : 'false' ?> // set to true or false is needed
+});
+config.on('show change', function(options) {
+	var f = document.getElementById('mapbbfield').form;
+	f.elements['mapbb_default_zoom'].value = options.defaultZoom;
+	f.elements['mapbb_default_pos'].value = '' + options.defaultPosition[0] + ',' + options.defaultPosition[1];
+	f.elements['mapbb_view_width'].value = options.viewWidth;
+	f.elements['mapbb_view_height'].value = options.viewHeight;
+	f.elements['mapbb_full_height'].value = options.fullViewHeight;
+	f.elements['mapbb_editor_height'].value = options.editorHeight;
+	f.elements['mapbb_window_width'].value = options.windowWidth;
+	f.elements['mapbb_window_height'].value = options.windowHeight;
+	f.elements['mapbb_layers'].value = options.layers.join(',');
+	f.elements['mapbb_always_full'].value = options.fullFromStart ? '1' : '';
+	f.elements['mapbb_editor_window'].value = options.editorInWindow ? '1' : '';
+	updateTableValues();
+});
+config.bindLayerAdder({
+	select: 'layer_select',
+	button: 'addbutton',
+	keyBlock: 'bing_key_row',
+	keyBlockDisplay: 'block',
+	keyTitle: 'bing_key_title',
+	keyValue: 'bing_key'
+});
+config.show('panel_config');
+// -->
+</script>
+	<?php } else { ?>
+<p style="color: red;">Dimensions and panel modes will be configurable after the plugin is enabled.</p>
+	<?php } ?>
+<hr />
+<p><input type="checkbox" name="mapbb_enable_external" <?php if( $ini['mapbb_enable_external'] ) echo 'checked="checked"' ?> /> Enable including and uploading maps to MapBBCode Share</p>
+<p><input type="checkbox" name="mapbb_standard_switcher" <?php if( $ini['mapbb_standard_switcher'] ) echo 'checked="checked"' ?> /> Hide layer list behind a button</p>
+<p>External link template, if needed (parameters: {zoom}, {lat}, {lon}):<br />
+<input type="text" name="mapbb_outer_link" size="60" maxlength="120" value="<?php echo $ini['mapbb_outer_link'] ?>" /><br />
+<span style="font-size: 9pt;">Example: http://www.openstreetmap.org/#map={zoom}/{lat}/{lon}</span></p>
+<p>Allowed HTML tags in popups (regular expression):<br />
+<input type="text" name="mapbb_allowed_tags" size="60" maxlength="80" value="<?php echo $ini['mapbb_allowed_tags'] ?>" /></p>
+<p>MapBBCode Share server hostname:<br />
+<input type="text" name="mapbb_share_server" size="60" maxlength="80" value="<?php echo $ini['mapbb_share_server'] ?>" /></p>
+	<?php
+}
+
+// Recursively copy a directory or individual files. Stolen from fs.inc.
+function fud_copy_copy($src, $dest)
+{
+	$src  = preg_replace('!/*$!', '', $src);
+	$dest = preg_replace('!/*$!', '', $dest);
+
+	$u = umask(0022);	// Limit to rwxr-xr-x
+	$dirs = array($src);
+	while (list(,$v) = each($dirs)) {
+		if (is_link($v)) {	// Don't copy symlinks.
+			continue;
+		}
+
+		if (!is_readable($v)) {
+			throw new Exception('Cannot open directory "'. $v .'".');
+			return;
+		}
+
+		if (!($files = glob($v .'/*', GLOB_NOSORT))) {
+			continue;
+		}
+		foreach ($files as $file) {
+			$d = $dest .'/'. str_replace($src, '', $v) .'/'. basename($file);
+		
+			if (is_dir($file)) {
+				if (!is_dir($d) && !mkdir($d)) {
+					throw new Exception('Cannot create directory "'. $d .'".');
+					return;
+				}
+				$dirs[] = $file;
+				continue;
+			}
+
+			if (!@copy($file, $d) && !@file_exists($d)) {
+				throw new Exception('Cannot copy "'. $file .'" to "'. $d .'".');
+			}
+		}		
+	}
+	umask($u);
+}
+?>
