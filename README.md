@@ -4,13 +4,18 @@ This adds [map] and [mapid] to FUDForum 3.0.2 and newer. See the [FUDforum's wik
 
 ## Installation
 
-Unzip `dist/mapbbcode_fud.zip` into `FUDforumData/plugins`. If you have FUDforum 3.0.2 (not newer), you would need to modify a script:
+1.  Unzip `dist/mapbbcode_fud.zip` into `{$DATA_DIR}/plugins`. 
 
-1. Open `FUDforumData/includes/compiler.inc`
-2. Find the second line with `FINALIZE` (in uppercase) in it. 
-3. Replace `array($file_data));` with `array($file_data, $dst));`
+1.1 (Only version <= 3.0.2) If you have FUDforum 3.0.2 and older, you need to modify the `{$DATA_DIR}/include/compiler.inc` script:
+  Find and replace line 
+  `list($file_data) = plugin_call_hook('COMPILER_FINALIZE_PAGE', array($file_data));` 
+   with 
+  `list($file_data) = plugin_call_hook('COMPILER_FINALIZE_PAGE', array($file_data,$dst));`
 
-Then open the Plugin Manager, find "MapBBCode" and enable it. After then open the configuration panel and change some settings. When done, you would need to rebuild forum's themes ("Theme Manager", "Rebuild all Themes").
+
+
+2.  Open the Plugin Manager in the admin panel, find "MapBBCode" and enable it. Then open the plugin configuration page and arrange settings. 
+3.  Finally rebuild forum's themes ("Admin panel" -> "Theme Manager" -> "Rebuild all Themes").
 
 ## Author and License
 
