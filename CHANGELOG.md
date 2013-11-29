@@ -1,5 +1,10 @@
 # MapBBCode for FUDForum Changelog
 
+### 1.1.1 (2013-11-29)
+
+* Update MapBBCode to 1.1.2.
+* Add translations.
+
 ### 1.1.0 (2013-11-13)
 
 * Update MapBBCode to version 1.1.0.

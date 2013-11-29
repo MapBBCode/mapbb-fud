@@ -11,7 +11,6 @@ mv mapbbcode js
 mkdir $DIR
 cp mapbbcode.plugin $DIR
 mv js $DIR
-rm -r $DIR/js/lang
 cp b_map.gif $DIR/js/images
 
 rm $TARGET
