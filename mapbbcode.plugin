@@ -2,7 +2,7 @@
 /**
 * copyright  : (C) 2013 Ilya Zverev
 * email      : zverik@textual.ru
-* version    : 1.1.1
+* version    : 1.2.0
 * requires   : FUDforum 3.0.3+
 *
 * This plugin is licensed WTFPL: http://www.wtfpl.net
@@ -23,6 +23,7 @@ plugin_add_hook('COMPILER_FINALIZE_PAGE', 'plugin_mapbbcode_add_scripts');
 function plugin_mapbbcode_add_proprietary_layers( $base ) {
 	// put MapBBCode add-ons here
 	$propr = '';
+	//$propr .= '<script src="'.$base.'/proprietary/Bing.js"></script>';
 	//$propr .= '<script src="'.$base.'/proprietary/Esri.js"></script>';
 	//$propr .= '<script src="'.$base.'/proprietary/Google.js"></script>';
 	//$propr .= '<script src="'.$base.'/proprietary/Yandex.js"></script>';
@@ -68,22 +69,17 @@ function plugin_mapbbcode_add_scripts($array) {
 	$scripts = <<<SCRIPTS
 <link rel="stylesheet" href="$base/leaflet.css" />
 <link rel="stylesheet" href="$base/leaflet.draw.css" />
-<!--[if lte IE 8]>
-	<link rel="stylesheet" href="$base/leaflet.ie.css" />
-	<link rel="stylesheet" href="$base/leaflet.draw.ie.css" />
-<![endif]-->
 <script src="$base/leaflet.js"></script>
 <script src="$base/leaflet.draw.js"></script>
 <script src="$base/mapbbcode.js"></script>
-<script src="$base/mapbbcode-config.js"></script>
+<script src="$base/LayerList.js"></script>
 <script src="$base/lang/$language.js"></script>
-<script src="$base/proprietary/Bing.js"></script>
 $proprietary
 <script language="Javascript" type="text/javascript">
 <!--
 var mapBBcode = new MapBBCode({
 	windowPath: '$base/',
-	layers: '{$ini['mapbb_layers']}',
+	layers: "{$ini['mapbb_layers']}",
 	defaultZoom: {$ini['mapbb_default_zoom']},
 	defaultPosition: [{$ini['mapbb_default_pos']}],
 	viewWidth: {$ini['mapbb_view_width']},
@@ -128,12 +124,12 @@ SCRIPTS;
 			$add = '<div id="mapedit"></div>';
 			$html = str_replace($find, $find.$add, $html);
 		}
-		$find = 'src="theme/default/images/b_image.gif" /></a></td>';
+		$find = '/images/b_image.gif" /></a></td>';
 		$method = $ini['mapbb_editor_window'] ? 'editorWindow(' : 'editor(\\\'mapedit\\\', ';
 		$add = '<td class="FormattingToolsCLR"><a title="Insert or edit a map" href="#" onclick="javascript:mapBBcode.'.$method.'document.post_form.msg_body);return false;"><img alt="" src="js/mapbbcode/images/b_map.gif" /></a></td>';
 		$html = str_replace($find, $find.$add, $html);
 		// 3.0.5
-		$find = 'src="theme/default/images/b_image.gif" /></a></span>';
+		$find = '/images/b_image.gif" /></a></span>';
 		$add = '<span class="FormattingToolsCLR"><a title="Insert or edit a map" href="#" onclick="javascript:mapBBcode.'.$method.'document.post_form.msg_body);return false;"><img alt="" src="js/mapbbcode/images/b_map.gif" /></a></span>';
 		$html = str_replace($find, $find.$add, $html);
 	}
@@ -177,7 +173,7 @@ function mapbbcode_disable() {
 }
 
 function mapbbcode_info() {
-	return array('name' => 'MapBBCode', 'version' => '1.1.1',
+	return array('name' => 'MapBBCode', 'version' => '1.2.0',
 		'cat' => 'Third-party Integration',
 		'desc' => 'Maps inside forum posts in [map] tags. More info at <a href="http://mapbbcode.org">MapBBCode website</a>.');
 }
@@ -185,8 +181,8 @@ function mapbbcode_info() {
 function plugin_mapbbcode_get_language() {
 	$lang = isset($GLOBALS['__COMPILER__']) && isset($GLOBALS['__COMPILER__']['lang']) ? $GLOBALS['__COMPILER__']['lang'] : 'en';
 	if( $lang == 'ru' )
-		return 'Russian';
-	return 'English';
+		return $lang;
+	return 'en';
 }
 
 function plugin_mapbbcode_read_ini() {
@@ -248,9 +244,6 @@ function mapbbcode_config() {
 
 	<?php if( file_exists($GLOBALS['WWW_ROOT_DISK'].'/js/mapbbcode/mapbbcode-config.js') ) { ?>
 <link rel="stylesheet" href="../js/mapbbcode/leaflet.css" />
-<!--[if lte IE 8]>
-	<link rel="stylesheet" href="../js/mapbbcode/leaflet.ie.css" />
-<![endif]-->
 <script src="../js/mapbbcode/leaflet.js"></script>
 <script src="../js/mapbbcode/mapbbcode-config.js"></script>
 <?php echo plugin_mapbbcode_add_proprietary_layers('../js/mapbbcode'); ?>
@@ -283,7 +276,7 @@ function updateTableValues() {
 }
 
 var config = new MapBBCodeConfig({
-	layers: '<?php echo $ini['mapbb_layers'] ?>'.split(','),
+	layers: "<?php echo $ini['mapbb_layers'] ?>".split(','),
 	defaultZoom: <?php echo $ini['mapbb_default_zoom'] ?>,
 	defaultPosition: [<?php echo $ini['mapbb_default_pos'] ?>],
 	viewWidth: <?php echo $ini['mapbb_view_width'] ?>,

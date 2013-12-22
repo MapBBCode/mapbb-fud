@@ -1,5 +1,10 @@
 # MapBBCode for FUDForum Changelog
 
+### 1.2.0 (2013-12-22)
+
+* Update MapBBCode to 1.2.0.
+* Fix adding the edit map button in non-default themes.
+
 ### 1.1.1 (2013-11-29)
 
 * Update MapBBCode to 1.1.2.
